@@ -1,0 +1,15 @@
+{
+  "name": "Fuelle — Transcriptor de Bandoneón",
+  "short_name": "Fuelle",
+  "description": "Transcriptor de bandoneón en vivo: afinación, ritmo y partitura profesional.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#241512",
+  "theme_color": "#241512",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -1,1 +1,1060 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Fuelle — Transcriptor de Bandoneón</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#241512">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;900&family=Libre+Franklin:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vexflow/4.2.2/vexflow.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root{
+  --leather:#241512;
+  --leather-2:#2f1c17;
+  --wine:#7a2230;
+  --brass:#c9a24b;
+  --brass-bright:#e6c874;
+  --parchment:#f3e8d0;
+  --parchment-dim:#c9bda3;
+  --ink:#1a1210;
+  --ok:#5c8a5c;
+  --warn:#b5542c;
+  --shadow: 0 10px 30px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:
+    radial-gradient(1200px 800px at 15% -10%, #3a2118 0%, transparent 60%),
+    radial-gradient(1000px 700px at 110% 10%, #341c14 0%, transparent 55%),
+    var(--leather);
+  color:var(--parchment);
+  font-family:'Libre Franklin', sans-serif;
+  min-height:100vh;
+  padding-bottom:60px;
+}
+header{
+  padding:28px 20px 18px;
+  text-align:center;
+  border-bottom:1px solid rgba(201,162,75,.25);
+  position:relative;
+}
+header::before{
+  content:"";
+  position:absolute; left:50%; top:0; transform:translateX(-50%);
+  width:64px; height:3px; background:var(--brass); border-radius:2px;
+  top:0;
+}
+h1{
+  font-family:'Playfair Display', serif;
+  font-weight:900;
+  font-size:clamp(28px,5vw,44px);
+  margin:10px 0 4px;
+  color:var(--brass-bright);
+  letter-spacing:.5px;
+}
+header p{
+  margin:0; color:var(--parchment-dim); font-size:14px; letter-spacing:.3px;
+}
+.wrap{max-width:1100px; margin:0 auto; padding:0 16px;}
+
+.bellows{
+  display:flex; justify-content:center; gap:3px; margin:14px 0 4px;
+}
+.bellows span{
+  width:14px; height:22px; background:linear-gradient(180deg,var(--wine),#4a1620);
+  border:1px solid rgba(201,162,75,.4);
+  transform-origin:bottom;
+  transition:transform .12s ease, background .12s ease;
+}
+.bellows.active span{ background:linear-gradient(180deg,var(--brass),var(--wine)); }
+
+.panel{
+  background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(0,0,0,.15));
+  border:1px solid rgba(201,162,75,.22);
+  border-radius:14px;
+  padding:18px;
+  margin:18px 0;
+  box-shadow: var(--shadow);
+}
+.panel h2{
+  font-family:'Playfair Display', serif;
+  font-size:17px; margin:0 0 14px; color:var(--brass);
+  display:flex; align-items:center; gap:8px;
+}
+.row{display:flex; flex-wrap:wrap; gap:14px; align-items:center;}
+label{font-size:12.5px; color:var(--parchment-dim); display:block; margin-bottom:4px; letter-spacing:.3px; text-transform:uppercase;}
+select, input[type=number]{
+  background:var(--ink); color:var(--parchment); border:1px solid rgba(201,162,75,.35);
+  border-radius:8px; padding:8px 10px; font-family:'JetBrains Mono', monospace; font-size:13px;
+}
+.field{min-width:130px;}
+
+button{
+  font-family:'Libre Franklin', sans-serif;
+  font-weight:600;
+  border:1px solid rgba(201,162,75,.4);
+  background:linear-gradient(180deg,#3a251f,#241512);
+  color:var(--parchment);
+  padding:10px 16px;
+  border-radius:9px;
+  cursor:pointer;
+  font-size:14px;
+  transition:transform .08s ease, background .15s ease, border-color .15s ease;
+}
+button:hover{ border-color:var(--brass); }
+button:active{ transform:scale(.97); }
+button.primary{
+  background:linear-gradient(180deg,var(--brass-bright),var(--brass));
+  color:#241512; border-color:transparent; font-weight:700;
+}
+button.primary.recording{
+  background:linear-gradient(180deg,#e05a3a,var(--wine));
+  color:#fff;
+  animation:pulse 1.4s infinite;
+}
+@keyframes pulse{
+  0%,100%{ box-shadow:0 0 0 0 rgba(224,90,58,.5); }
+  50%{ box-shadow:0 0 0 8px rgba(224,90,58,0); }
+}
+button.ghost{background:transparent;}
+button:disabled{opacity:.4; cursor:not-allowed;}
+.toggle{
+  display:flex; align-items:center; gap:8px; font-size:13px; color:var(--parchment-dim); cursor:pointer;
+}
+.toggle input{width:16px;height:16px; accent-color:var(--brass);}
+
+.live-grid{display:grid; grid-template-columns:1.3fr 1fr; gap:16px;}
+@media (max-width:720px){ .live-grid{grid-template-columns:1fr;} }
+
+.note-card{
+  background:radial-gradient(circle at 50% 20%, #3a251f, var(--leather-2));
+  border:1px solid rgba(201,162,75,.3);
+  border-radius:14px;
+  padding:22px;
+  text-align:center;
+}
+.note-big{
+  font-family:'Playfair Display', serif;
+  font-weight:900;
+  font-size:clamp(48px,8vw,72px);
+  color:var(--brass-bright);
+  line-height:1;
+  min-height:1.1em;
+}
+.note-sub{ color:var(--parchment-dim); font-family:'JetBrains Mono',monospace; font-size:13px; margin-top:6px;}
+.tuning-bar{
+  margin-top:14px; height:8px; border-radius:4px; background:rgba(255,255,255,.08); position:relative; overflow:hidden;
+}
+.tuning-bar .marker{
+  position:absolute; top:0; bottom:0; width:3px; background:var(--brass-bright); left:50%; transform:translateX(-50%);
+}
+.tuning-bar .fill{
+  position:absolute; top:0; bottom:0; width:2px; background:#fff; left:50%;
+  transition:left .08s linear;
+}
+.status-dot{display:inline-block; width:9px; height:9px; border-radius:50%; background:#555; margin-right:6px;}
+.status-dot.on{background:var(--ok); box-shadow:0 0 8px var(--ok);}
+
+.stats{display:flex; gap:18px; flex-wrap:wrap; font-family:'JetBrains Mono', monospace; font-size:13px; color:var(--parchment-dim);}
+.stats b{color:var(--parchment); font-weight:600;}
+
+#scoreContainer{
+  background:var(--parchment);
+  border-radius:10px;
+  padding:10px 4px;
+  overflow-x:auto;
+  min-height:180px;
+}
+#scoreSvg svg{display:block;}
+.score-controls{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;}
+
+.export-grid{display:flex; flex-wrap:wrap; gap:10px;}
+footer{text-align:center; color:var(--parchment-dim); font-size:12px; margin-top:30px; opacity:.7;}
+
+@media print{
+  body *{ visibility:hidden; }
+  #scoreContainer, #scoreContainer *{ visibility:visible; }
+  #scoreContainer{ position:absolute; left:0; top:0; width:100%; background:#fff; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="bellows" id="bellows">
+    <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+  </div>
+  <h1>Fuelle</h1>
+  <p>Transcriptor de bandoneón en vivo · afinación, ritmo y partitura profesional</p>
+</header>
+
+<div class="wrap">
+
+  <div class="panel">
+    <h2>① Configuración musical</h2>
+    <div class="row">
+      <div class="field">
+        <label>Tonalidad</label>
+        <select id="keySelect"></select>
+      </div>
+      <div class="field">
+        <label>Compás</label>
+        <select id="timeSig">
+          <option value="4/4" selected>4/4</option>
+          <option value="3/4">3/4</option>
+          <option value="2/4">2/4</option>
+          <option value="6/8">6/8</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Tempo (BPM)</label>
+        <input type="number" id="bpm" value="100" min="30" max="300">
+      </div>
+      <div class="field">
+        <label>Sensibilidad detección</label>
+        <select id="sensitivity">
+          <option value="alta" selected>Alta (recomendado)</option>
+          <option value="media">Media</option>
+          <option value="estricta">Estricta (menos falsos positivos)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label style="visibility:hidden">tap</label>
+        <button id="tapTempo" class="ghost">Marcar tempo (tap)</button>
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px;">
+      <label class="toggle"><input type="checkbox" id="voiceToggle" checked> Anunciar nota en voz alta</label>
+      <label class="toggle"><input type="checkbox" id="autocorrectToggle" checked> Autocorrección de estabilidad</label>
+      <label class="toggle"><input type="checkbox" id="metronomeToggle"> Metrónomo al reproducir</label>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>② Escucha en vivo</h2>
+    <div class="row" style="margin-bottom:14px;">
+      <button class="primary" id="micBtn">🎙️ Empezar a escuchar</button>
+      <button class="ghost" id="undoBtn">↩ Borrar última nota</button>
+      <button class="ghost" id="clearBtn">🗑 Vaciar partitura</button>
+      <button class="ghost" id="saveAppBtn">💾 Guardar esta app</button>
+      <button class="ghost" id="standaloneBtn">🗔 Abrir en ventana aparte</button>
+      <button class="primary" id="installBtn" style="display:none;">📲 Instalar app en el celular</button>
+      <span style="margin-left:auto; font-size:13px; color:var(--parchment-dim);">
+        <span class="status-dot" id="statusDot"></span><span id="statusText">Micrófono apagado</span>
+      </span>
+    </div>
+
+    <div class="live-grid">
+      <div class="note-card">
+        <div class="note-big" id="noteBig">—</div>
+        <div class="note-sub" id="noteSub">esperando sonido…</div>
+        <div class="tuning-bar"><div class="marker"></div><div class="fill" id="tuningFill"></div></div>
+        <div class="note-sub" id="centsText" style="margin-top:6px;">0 cents</div>
+      </div>
+      <div class="note-card">
+        <div style="text-align:left;">
+          <div class="stats">
+            <div>Notas transcriptas: <b id="statCount">0</b></div>
+            <div>Duración detectada: <b id="statDur">—</b></div>
+            <div>Frecuencia: <b id="statFreq">— Hz</b></div>
+            <div>Confianza: <b id="statConf">—</b></div>
+          </div>
+          <p style="font-size:12.5px; color:var(--parchment-dim); margin-top:16px; line-height:1.5;">
+            Tocá una nota sostenida por un instante para calibrar. El sistema promedia varias lecturas
+            antes de confirmar cada nota, así evita errores por vibrato, ruido de aire del fuelle o
+            armónicos falsos.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>③ Partitura</h2>
+    <div class="score-controls">
+      <div class="row">
+        <button id="playBtn">▶ Reproducir</button>
+        <button id="stopBtn" disabled>⏹ Detener</button>
+      </div>
+      <div class="export-grid">
+        <button id="exportPng">🖼 Imagen (PNG)</button>
+        <button id="exportPdf">📄 PDF</button>
+        <button id="exportXml">🎼 MusicXML</button>
+        <button id="exportMidi">🎹 MIDI</button>
+        <button id="printBtn">🖨 Imprimir</button>
+      </div>
+    </div>
+    <div id="scoreContainer"><div id="scoreSvg"></div></div>
+  </div>
+
+</div>
+
+<footer>Fuelle · funciona 100% en tu navegador, sin conexión a servidores externos para el audio.</footer>
+
+<script>
+/* ============================================================
+   1. TEORÍA MUSICAL: nombres en español, tonalidades, duraciones
+   ============================================================ */
+const SHARP_NAMES = ['Do','Do#','Re','Re#','Mi','Fa','Fa#','Sol','Sol#','La','La#','Si'];
+const FLAT_NAMES  = ['Do','Reb','Re','Mib','Mi','Fa','Solb','Sol','Lab','La','Sib','Si'];
+const SPOKEN_SHARP = ['Do','Do sostenido','Re','Re sostenido','Mi','Fa','Fa sostenido','Sol','Sol sostenido','La','La sostenido','Si'];
+const SPOKEN_FLAT  = ['Do','Re bemol','Re','Mi bemol','Mi','Fa','Sol bemol','Sol','La bemol','La','Si bemol','Si'];
+// VexFlow letter (c,d,e,f,g,a,b) + accidental for each pitch class, per accidental system
+const VEX_SHARP = ['c','c#','d','d#','e','f','f#','g','g#','a','a#','b'];
+const VEX_FLAT  = ['c','db','d','eb','e','f','gb','g','ab','a','bb','b'];
+
+// key -> [tonic pitch class, usesFlats, vexflow key string for signature]
+const KEYS = [
+  {label:'Do mayor',   flats:false, vex:'C'},
+  {label:'Sol mayor',  flats:false, vex:'G'},
+  {label:'Re mayor',   flats:false, vex:'D'},
+  {label:'La mayor',   flats:false, vex:'A'},
+  {label:'Mi mayor',   flats:false, vex:'E'},
+  {label:'Si mayor',   flats:false, vex:'B'},
+  {label:'Fa# mayor',  flats:false, vex:'F#'},
+  {label:'Fa mayor',   flats:true,  vex:'F'},
+  {label:'Sib mayor',  flats:true,  vex:'Bb'},
+  {label:'Mib mayor',  flats:true,  vex:'Eb'},
+  {label:'Lab mayor',  flats:true,  vex:'Ab'},
+  {label:'Reb mayor',  flats:true,  vex:'Db'},
+];
+
+const keySelect = document.getElementById('keySelect');
+KEYS.forEach((k,i)=>{
+  const o = document.createElement('option');
+  o.value = i; o.textContent = k.label;
+  if(k.vex==='C') o.selected = true;
+  keySelect.appendChild(o);
+});
+
+function currentKey(){ return KEYS[+keySelect.value]; }
+
+// Duration quantizer: beats -> {vex duration code, dots, label}
+const DURATION_TABLE = [
+  {beats:4,    code:'w',  label:'redonda'},
+  {beats:3,    code:'hd', label:'blanca con puntillo'},
+  {beats:2,    code:'h',  label:'blanca'},
+  {beats:1.5,  code:'qd', label:'negra con puntillo'},
+  {beats:1,    code:'q',  label:'negra'},
+  {beats:0.75, code:'8d', label:'corchea con puntillo'},
+  {beats:0.5,  code:'8',  label:'corchea'},
+  {beats:0.375,code:'16d',label:'semicorchea con puntillo'},
+  {beats:0.25, code:'16', label:'semicorchea'},
+  {beats:0.125,code:'32', label:'fusa'},
+];
+function quantizeDuration(beats){
+  let best = DURATION_TABLE[0], bestDiff = Infinity;
+  for(const d of DURATION_TABLE){
+    const diff = Math.abs(d.beats - beats);
+    if(diff < bestDiff){ bestDiff = diff; best = d; }
+  }
+  return best;
+}
+
+function midiToInfo(midi, useFlats){
+  const pc = ((Math.round(midi) % 12) + 12) % 12;
+  const octave = Math.floor(Math.round(midi)/12) - 1;
+  const names = useFlats ? FLAT_NAMES : SHARP_NAMES;
+  const spoken = useFlats ? SPOKEN_FLAT : SPOKEN_SHARP;
+  const vexLetter = useFlats ? VEX_FLAT[pc] : VEX_SHARP[pc];
+  return { pc, octave, name: names[pc]+octave, spoken: spoken[pc], vexKey: vexLetter+'/'+octave };
+}
+
+/* ============================================================
+   2. DETECCIÓN DE ALTURA (autocorrelación + estabilización)
+   ============================================================ */
+let audioCtx, analyser, micSource, scriptNode, mediaStream;
+let listening = false;
+let pitchHistory = []; // last N stable readings {midi, time}
+let currentNoteState = null; // {midi, startTime, lastSeen, samples:[]}
+const SENSITIVITY_PARAMS = {
+  alta:     { rmsThresh:0.008, clarityThresh:0.85, confirmFrames:2 },
+  media:    { rmsThresh:0.014, clarityThresh:0.90, confirmFrames:3 },
+  estricta: { rmsThresh:0.022, clarityThresh:0.94, confirmFrames:4 },
+};
+
+function autoCorrelate(buf, sampleRate){
+  const SIZE = buf.length;
+  let rms = 0;
+  for(let i=0;i<SIZE;i++){ rms += buf[i]*buf[i]; }
+  rms = Math.sqrt(rms/SIZE);
+  const params = SENSITIVITY_PARAMS[document.getElementById('sensitivity').value];
+  if(rms < params.rmsThresh) return {freq:-1, clarity:0, rms};
+
+  // trim leading/trailing silence for a cleaner window
+  let start=0, end=SIZE-1;
+  const trimThresh = rms*0.2;
+  while(start<SIZE && Math.abs(buf[start])<trimThresh) start++;
+  while(end>start && Math.abs(buf[end])<trimThresh) end--;
+  const trimmed = buf.slice(start, end+1);
+  const N = trimmed.length;
+  if(N < 512) return {freq:-1, clarity:0, rms};
+
+  const maxLag = Math.min(Math.floor(sampleRate/60), N-1); // down to ~60Hz
+  const minLag = Math.floor(sampleRate/1500); // up to ~1500Hz
+  let bestLag = -1, bestCorr = 0;
+  const c = new Float32Array(maxLag+1);
+  for(let lag=minLag; lag<=maxLag; lag++){
+    let sum=0;
+    for(let i=0;i<N-lag;i++){ sum += trimmed[i]*trimmed[i+lag]; }
+    c[lag]=sum;
+    if(sum>bestCorr){ bestCorr=sum; bestLag=lag; }
+  }
+  if(bestLag<=0) return {freq:-1, clarity:0, rms};
+
+  // normalize correlation by energy for a clarity score
+  let energy=0;
+  for(let i=0;i<N-bestLag;i++){ energy += trimmed[i]*trimmed[i] + trimmed[i+bestLag]*trimmed[i+bestLag]; }
+  const clarity = energy>0 ? (2*bestCorr)/energy : 0;
+
+  // parabolic interpolation around bestLag for sub-sample precision
+  let lag = bestLag;
+  if(lag>minLag && lag<maxLag){
+    const y1=c[lag-1], y2=c[lag], y3=c[lag+1];
+    const denom = (y1 - 2*y2 + y3);
+    if(denom !== 0){
+      const shift = 0.5*(y1-y3)/denom;
+      lag = lag + shift;
+    }
+  }
+  const freq = sampleRate/lag;
+  return {freq, clarity, rms};
+}
+
+function freqToMidi(freq){ return 69 + 12*Math.log2(freq/440); }
+
+function processAudioFrame(buf, sampleRate){
+  const {freq, clarity, rms} = autoCorrelate(buf, sampleRate);
+  const params = SENSITIVITY_PARAMS[document.getElementById('sensitivity').value];
+  document.getElementById('statFreq').textContent = freq>0 ? freq.toFixed(1)+' Hz' : '— Hz';
+  document.getElementById('statConf').textContent = freq>0 ? Math.round(clarity*100)+'%' : '—';
+
+  if(freq<0 || clarity < params.clarityThresh){
+    handleSilence();
+    return;
+  }
+  const midi = freqToMidi(freq);
+  const nearest = Math.round(midi);
+  const cents = Math.round((midi-nearest)*100);
+  updateTuningUI(nearest, cents, true);
+
+  const autocorrectOn = document.getElementById('autocorrectToggle').checked;
+  const now = performance.now()/1000;
+
+  if(!currentNoteState){
+    currentNoteState = { midi:nearest, startTime:now, lastSeen:now, samples:[midi], confirmedFrames:1 };
+    return;
+  }
+  const sameNote = currentNoteState.midi === nearest;
+  if(sameNote){
+    currentNoteState.samples.push(midi);
+    currentNoteState.lastSeen = now;
+    currentNoteState.confirmedFrames++;
+    if(!currentNoteState.announced && (!autocorrectOn || currentNoteState.confirmedFrames >= params.confirmFrames)){
+      announceNote(currentNoteState.midi);
+      currentNoteState.announced = true;
+    }
+  } else {
+    // possible new note: require stability before switching (avoids octave jumps / glitches)
+    currentNoteState.pendingMidi = currentNoteState.pendingMidi===nearest ? currentNoteState.pendingMidi : nearest;
+    currentNoteState.pendingCount = (currentNoteState.pendingMidi===nearest) ? (currentNoteState.pendingCount||0)+1 : 1;
+    const need = autocorrectOn ? params.confirmFrames : 1;
+    if(currentNoteState.pendingCount >= need){
+      finalizeNote(now);
+      currentNoteState = { midi:nearest, startTime:now, lastSeen:now, samples:[midi], confirmedFrames:1 };
+    }
+  }
+}
+
+function handleSilence(){
+  updateTuningUI(null,0,false);
+  if(currentNoteState){
+    const now = performance.now()/1000;
+    // small grace period to avoid cutting notes on brief silences
+    if(now - currentNoteState.lastSeen > 0.06){
+      finalizeNote(now);
+      currentNoteState = null;
+    }
+  }
+}
+
+function finalizeNote(endTime){
+  if(!currentNoteState) return;
+  const dur = endTime - currentNoteState.startTime;
+  const MIN_NOTE = 0.045; // ignore blips shorter than ~45ms
+  if(dur < MIN_NOTE) return;
+  const bpm = +document.getElementById('bpm').value || 100;
+  const beatLen = 60/bpm;
+  const beats = dur/beatLen;
+  const q = quantizeDuration(beats);
+  addNoteToScore(currentNoteState.midi, q);
+}
+
+/* ============================================================
+   3. UI en vivo: nota grande, afinación, voz
+   ============================================================ */
+function updateTuningUI(midi, cents, active){
+  const key = currentKey();
+  const big = document.getElementById('noteBig');
+  const sub = document.getElementById('noteSub');
+  const fill = document.getElementById('tuningFill');
+  const centsText = document.getElementById('centsText');
+  const bellows = document.getElementById('bellows');
+  bellows.classList.toggle('active', !!active);
+  if(midi===null){
+    big.textContent = '—'; sub.textContent='esperando sonido…';
+    fill.style.left='50%'; centsText.textContent='0 cents';
+    return;
+  }
+  const info = midiToInfo(midi, key.flats);
+  big.textContent = info.name;
+  sub.textContent = 'octava '+info.octave;
+  const pct = 50 + Math.max(-50, Math.min(50, cents/50*50));
+  fill.style.left = pct+'%';
+  centsText.textContent = (cents>0?'+':'')+cents+' cents';
+}
+
+let lastAnnouncedMidi = null;
+let speechQueueLen = 0;
+function announceNote(midi){
+  const key = currentKey();
+  const info = midiToInfo(midi, key.flats);
+  if(!document.getElementById('voiceToggle').checked) return;
+  if(midi===lastAnnouncedMidi) return;
+  lastAnnouncedMidi = midi;
+  if('speechSynthesis' in window){
+    if(speechQueueLen > 2){ speechSynthesis.cancel(); speechQueueLen=0; } // avoid pileup on fast passages
+    const utter = new SpeechSynthesisUtterance(info.spoken);
+    utter.lang = 'es-AR';
+    utter.rate = 1.15;
+    speechQueueLen++;
+    utter.onend = ()=>{ speechQueueLen = Math.max(0,speechQueueLen-1); };
+    utter.onerror = ()=>{ speechQueueLen = Math.max(0,speechQueueLen-1); };
+    speechSynthesis.speak(utter);
+  }
+}
+
+/* ============================================================
+   4. MODELO DE PARTITURA + RENDER CON VEXFLOW
+   ============================================================ */
+let scoreNotes = []; // {midi, code, dots, label}
+
+function addNoteToScore(midi, q){
+  scoreNotes.push({ midi, code:q.code.replace('d',''), dots:q.code.includes('d')?1:0, label:q.label });
+  renderScore();
+  updateStats();
+}
+
+function undoNote(){
+  scoreNotes.pop();
+  renderScore();
+  updateStats();
+}
+function clearScore(){
+  scoreNotes = [];
+  renderScore();
+  updateStats();
+}
+function updateStats(){
+  document.getElementById('statCount').textContent = scoreNotes.length;
+  const last = scoreNotes[scoreNotes.length-1];
+  document.getElementById('statDur').textContent = last ? last.label : '—';
+}
+
+function timeSigBeats(){
+  const ts = document.getElementById('timeSig').value;
+  const [num, den] = ts.split('/').map(Number);
+  return { num, den, beatsPerMeasure: num*(4/den) };
+}
+
+function renderScore(){
+  const container = document.getElementById('scoreSvg');
+  container.innerHTML = '';
+  const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, Dot } = Vex.Flow;
+  const key = currentKey();
+  const ts = document.getElementById('timeSig').value;
+  const { beatsPerMeasure } = timeSigBeats();
+
+  // group notes into measures based on quantized duration in beats
+  const beatsOf = code => ({w:4,h:2,q:1,'8':0.5,'16':0.25,'32':0.125}[code]);
+  const measures = [[]];
+  let acc = 0;
+  scoreNotes.forEach(n=>{
+    let beats = beatsOf(n.code) * (n.dots ? 1.5 : 1);
+    if(acc + beats > beatsPerMeasure + 0.001 && measures[measures.length-1].length>0){
+      measures.push([]);
+      acc = 0;
+    }
+    measures[measures.length-1].push(n);
+    acc += beats;
+    if(acc >= beatsPerMeasure - 0.001) { measures.push([]); acc = 0; }
+  });
+  if(measures[measures.length-1].length===0) measures.pop();
+  if(measures.length===0) measures.push([]);
+
+  const measureWidth = 230;
+  const width = Math.max(700, 60 + measures.length*measureWidth + 40);
+  const renderer = new Renderer(container, Renderer.Backends.SVG);
+  renderer.resize(width, 180);
+  const ctx = renderer.getContext();
+  ctx.setFont('Georgia', 10);
+
+  let x = 20;
+  measures.forEach((measure, mi)=>{
+    const stave = new Stave(x, 30, measureWidth);
+    if(mi===0){
+      stave.addClef('treble').addKeySignature(key.vex).addTimeSignature(ts);
+    }
+    stave.setContext(ctx).draw();
+
+    if(measure.length>0){
+      const staveNotes = measure.map(n=>{
+        const info = midiToInfo(n.midi, key.flats);
+        const sn = new StaveNote({ clef:'treble', keys:[info.vexKey], duration:n.code + (n.dots?'d':'') });
+        if(n.dots) Dot.buildAndAttach([sn], {all:true});
+        return sn;
+      });
+      Accidental.applyAccidentals([staveNotes], key.vex);
+      const voice = new Voice({ num_beats: beatsPerMeasure, beat_value: 4 }).setStrict(false);
+      voice.addTickables(staveNotes);
+      new Formatter().joinVoices([voice]).format([voice], measureWidth-40);
+      voice.draw(ctx, stave);
+    }
+    x += measureWidth;
+  });
+}
+
+/* ============================================================
+   5. REPRODUCCIÓN DE ALTA CALIDAD (Tone.js)
+   ============================================================ */
+let synth = null, reverb = null, isPlaying = false, scheduledEventIds = [];
+async function ensureSynth(){
+  if(synth) return;
+  await Tone.start();
+  reverb = new Tone.Reverb({ decay: 2.2, wet: 0.22 }).toDestination();
+  synth = new Tone.PolySynth(Tone.FMSynth, {
+    harmonicity: 2.01,
+    modulationIndex: 3,
+    oscillator: { type:'sine' },
+    envelope: { attack:0.008, decay:0.25, sustain:0.65, release:0.6 },
+    modulation: { type:'triangle' },
+    modulationEnvelope: { attack:0.02, decay:0.3, sustain:0.2, release:0.4 }
+  }).connect(reverb);
+  synth.volume.value = -6;
+}
+
+async function playScore(){
+  if(scoreNotes.length===0) return;
+  await ensureSynth();
+  hardStopPlayback(); // aseguramos un estado limpio antes de empezar
+  isPlaying = true;
+  document.getElementById('playBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  const bpm = +document.getElementById('bpm').value || 100;
+  const beatLen = 60/bpm;
+  const beatsOf = code => ({w:4,h:2,q:1,'8':0.5,'16':0.25,'32':0.125}[code]);
+  let t = 0;
+  scoreNotes.forEach(n=>{
+    const beats = beatsOf(n.code) * (n.dots?1.5:1);
+    const dur = beats*beatLen;
+    const freq = Tone.Frequency(n.midi, 'midi').toFrequency();
+    const noteTime = t;
+    const id = Tone.Transport.schedule((time)=>{
+      synth.triggerAttackRelease(freq, dur*0.92, time);
+    }, noteTime);
+    scheduledEventIds.push(id);
+    t += dur;
+  });
+  const endId = Tone.Transport.schedule(()=>{ stopScore(); }, t + 0.25);
+  scheduledEventIds.push(endId);
+  Tone.Transport.start();
+}
+
+function hardStopPlayback(){
+  scheduledEventIds.forEach(id => Tone.Transport.clear(id));
+  scheduledEventIds = [];
+  Tone.Transport.stop();
+  Tone.Transport.cancel();
+  Tone.Transport.position = 0;
+  if(synth) synth.releaseAll();
+}
+
+function stopScore(){
+  isPlaying = false;
+  hardStopPlayback();
+  document.getElementById('playBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+}
+
+/* ============================================================
+   6. EXPORTACIÓN: PNG / PDF / MusicXML / MIDI / Imprimir
+   ============================================================ */
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
+function svgToCanvas(scale){
+  return new Promise((resolve)=>{
+    const svg = document.querySelector('#scoreSvg svg');
+    const serializer = new XMLSerializer();
+    let svgStr = serializer.serializeToString(svg);
+    if(!svgStr.includes('xmlns=')) svgStr = svgStr.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+    const svgBlob = new Blob([svgStr], {type:'image/svg+xml;charset=utf-8'});
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = ()=>{
+      const w = svg.width.baseVal.value || svg.getBoundingClientRect().width;
+      const h = svg.height.baseVal.value || svg.getBoundingClientRect().height;
+      const canvas = document.createElement('canvas');
+      canvas.width = w*scale; canvas.height = h*scale;
+      const cctx = canvas.getContext('2d');
+      cctx.fillStyle = '#ffffff';
+      cctx.fillRect(0,0,canvas.width, canvas.height);
+      cctx.drawImage(img, 0,0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas);
+    };
+    img.src = url;
+  });
+}
+
+async function exportPng(){
+  const canvas = await svgToCanvas(3);
+  canvas.toBlob(blob=> downloadBlob(blob, 'partitura-bandoneon.png'));
+}
+async function exportPdf(){
+  const canvas = await svgToCanvas(3);
+  const { jsPDF } = window.jspdf;
+  const orientation = canvas.width > canvas.height ? 'l' : 'p';
+  const pdf = new jsPDF(orientation, 'pt', [canvas.width/3+40, canvas.height/3+40]);
+  const imgData = canvas.toDataURL('image/png');
+  pdf.addImage(imgData, 'PNG', 20, 20, canvas.width/3, canvas.height/3);
+  pdf.save('partitura-bandoneon.pdf');
+}
+
+function exportXml(){
+  const key = currentKey();
+  const ts = document.getElementById('timeSig').value;
+  const [num, den] = ts.split('/').map(Number);
+  const divisions = 96; // ticks per quarter note
+  const beatsOf = code => ({w:4,h:2,q:1,'8':0.5,'16':0.25,'32':0.125}[code]);
+  const typeOf = code => ({w:'whole',h:'half',q:'quarter','8':'eighth','16':'16th','32':'32nd'}[code]);
+  const fifths = KEYS.indexOf(key); // approximate circle-of-fifths index, informative only
+  let notesXml = '';
+  scoreNotes.forEach(n=>{
+    const info = midiToInfo(n.midi, key.flats);
+    const letter = info.vexKey[0].toUpperCase();
+    const alterMatch = info.vexKey.match(/^[a-g](#|b)?/);
+    let alter = 0;
+    if(info.vexKey.includes('#')) alter = 1;
+    if(info.vexKey.match(/[a-g]b/)) alter = -1;
+    const beats = beatsOf(n.code) * (n.dots?1.5:1);
+    const duration = Math.round(beats*divisions);
+    notesXml += `
+      <note>
+        <pitch>
+          <step>${letter}</step>
+          ${alter!==0? `<alter>${alter}</alter>`:''}
+          <octave>${info.octave}</octave>
+        </pitch>
+        <duration>${duration}</duration>
+        <type>${typeOf(n.code)}</type>
+        ${n.dots? '<dot/>':''}
+        ${alter!==0? `<accidental>${alter===1?'sharp':'flat'}</accidental>`:''}
+      </note>`;
+  });
+  const xml = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <work><work-title>Transcripción de bandoneón</work-title></work>
+  <part-list>
+    <score-part id="P1"><part-name>Bandoneón</part-name></score-part>
+  </part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>${divisions}</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>${num}</beats><beat-type>${den}</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      ${notesXml}
+    </measure>
+  </part>
+</score-partwise>`;
+  downloadBlob(new Blob([xml], {type:'application/vnd.recordare.musicxml+xml'}), 'partitura-bandoneon.musicxml');
+}
+
+function writeVarLen(value){
+  const bytes = [];
+  let buffer = value & 0x7f;
+  while((value >>= 7) > 0){
+    buffer <<= 8; buffer |= 0x80; buffer += (value & 0x7f);
+  }
+  while(true){
+    bytes.push(buffer & 0xff);
+    if(buffer & 0x80) buffer >>= 8; else break;
+  }
+  return bytes;
+}
+
+function exportMidi(){
+  const bpm = +document.getElementById('bpm').value || 100;
+  const ticksPerBeat = 96;
+  const beatsOf = code => ({w:4,h:2,q:1,'8':0.5,'16':0.25,'32':0.125}[code]);
+  const usPerBeat = Math.round(60000000/bpm);
+  const events = [];
+  // tempo meta event at time 0
+  events.push({ delta:0, bytes:[0xFF,0x51,0x03,(usPerBeat>>16)&0xff,(usPerBeat>>8)&0xff,usPerBeat&0xff] });
+
+  let track = [];
+  function pushEvent(deltaTicks, bytes){ track.push({delta:deltaTicks, bytes}); }
+  pushEvent(0, [0xFF,0x51,0x03,(usPerBeat>>16)&0xff,(usPerBeat>>8)&0xff,usPerBeat&0xff]);
+
+  let pending = 0;
+  scoreNotes.forEach(n=>{
+    const beats = beatsOf(n.code) * (n.dots?1.5:1);
+    const ticks = Math.round(beats*ticksPerBeat);
+    pushEvent(pending, [0x90, n.midi & 0x7f, 0x64]); // note on
+    pending = 0;
+    pushEvent(ticks, [0x80, n.midi & 0x7f, 0x40]); // note off
+    pending = 0;
+  });
+  pushEvent(0, [0xFF,0x2F,0x00]); // end of track
+
+  let trackBytes = [];
+  track.forEach(ev=>{
+    trackBytes.push(...writeVarLen(ev.delta));
+    trackBytes.push(...ev.bytes);
+  });
+
+  const header = [
+    0x4D,0x54,0x68,0x64, 0,0,0,6, // MThd + length
+    0,0, // format 0
+    0,1, // 1 track
+    (ticksPerBeat>>8)&0xff, ticksPerBeat&0xff
+  ];
+  const trackHeader = [0x4D,0x54,0x72,0x6B,
+    (trackBytes.length>>24)&0xff, (trackBytes.length>>16)&0xff, (trackBytes.length>>8)&0xff, trackBytes.length&0xff];
+
+  const fileBytes = new Uint8Array([...header, ...trackHeader, ...trackBytes]);
+  downloadBlob(new Blob([fileBytes], {type:'audio/midi'}), 'partitura-bandoneon.mid');
+}
+
+/* ============================================================
+   7. MICRÓFONO: iniciar / detener
+   ============================================================ */
+async function startMic(){
+  const statusText = document.getElementById('statusText');
+  const micBtn = document.getElementById('micBtn');
+
+  // 1) Chequeo de contexto seguro / disponibilidad de la API, ANTES de pedir nada.
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    showMicHelp('Este navegador no permite usar el micrófono desde esta página ' +
+      '(suele pasar si se abrió por una dirección http:// que no es "localhost"). ' +
+      'Abrí el archivo con doble clic directamente, o subilo a un hosting con https (por ejemplo Replit).');
+    return;
+  }
+
+  // 2) Crear/reanudar el AudioContext lo antes posible dentro del mismo clic
+  //    (los navegadores exigen que se cree tras un gesto del usuario).
+  if(!audioCtx){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if(audioCtx.state === 'suspended'){
+    try{ await audioCtx.resume(); }catch(e){ /* seguimos igual */ }
+  }
+
+  micBtn.disabled = true;
+  statusText.textContent = 'Pidiendo permiso de micrófono… mirá arriba del navegador';
+
+  // 3) Pedir el micrófono. Esto es lo que dispara el cartel nativo de permiso.
+  try{
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+    });
+  }catch(err){
+    micBtn.disabled = false;
+    if(err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'){
+      showMicHelp('El micrófono está bloqueado para esta página. Hacé clic en el ícono de candado 🔒 ' +
+        'junto a la dirección del navegador → Permisos del sitio → Micrófono → Permitir, y volvé a tocar el botón.');
+    } else if(err.name === 'NotFoundError'){
+      showMicHelp('No se encontró ningún micrófono conectado. Revisá que esté enchufado o seleccionado como entrada de audio por defecto.');
+    } else {
+      showMicHelp('No se pudo acceder al micrófono (' + err.name + '). Detalle: ' + err.message);
+    }
+    return;
+  }
+
+  micBtn.disabled = false;
+  micSource = audioCtx.createMediaStreamSource(mediaStream);
+  scriptNode = audioCtx.createScriptProcessor(2048, 1, 1);
+  const gainSink = audioCtx.createGain();
+  gainSink.gain.value = 0; // silencioso: evita eco/feedback, solo se usa para mantener vivo el pipeline
+  micSource.connect(scriptNode);
+  scriptNode.connect(gainSink);
+  gainSink.connect(audioCtx.destination);
+
+  scriptNode.onaudioprocess = (e)=>{
+    try{
+      const buf = e.inputBuffer.getChannelData(0);
+      processAudioFrame(buf, audioCtx.sampleRate);
+    }catch(err){
+      // Un frame problemático no debe tirar abajo la escucha en vivo.
+      console.warn('Frame de audio ignorado:', err);
+    }
+  };
+  listening = true;
+  micBtn.textContent = '⏸ Detener escucha';
+  micBtn.classList.add('recording');
+  document.getElementById('statusDot').classList.add('on');
+  statusText.textContent = 'Escuchando…';
+  hideMicHelp();
+}
+
+function showMicHelp(msg){
+  let box = document.getElementById('micHelpBox');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'micHelpBox';
+    box.style.cssText = 'margin-top:12px;padding:12px 14px;border-radius:8px;background:rgba(181,84,44,.18);border:1px solid var(--warn);font-size:13px;line-height:1.5;color:var(--parchment);';
+    document.getElementById('micBtn').parentElement.appendChild(box);
+  }
+  box.textContent = '⚠ ' + msg;
+  document.getElementById('statusText').textContent = 'Micrófono no disponible';
+}
+function hideMicHelp(){
+  const box = document.getElementById('micHelpBox');
+  if(box) box.remove();
+}
+
+function stopMic(){
+  listening = false;
+  if(currentNoteState){ finalizeNote(performance.now()/1000); currentNoteState=null; }
+  if(scriptNode){ scriptNode.disconnect(); scriptNode.onaudioprocess=null; }
+  if(micSource) micSource.disconnect();
+  if(mediaStream) mediaStream.getTracks().forEach(t=>t.stop());
+  if(audioCtx){ audioCtx.close(); audioCtx = null; }
+  if('speechSynthesis' in window) speechSynthesis.cancel();
+  speechQueueLen = 0;
+  lastAnnouncedMidi = null;
+  document.getElementById('micBtn').textContent = '🎙️ Empezar a escuchar';
+  document.getElementById('micBtn').classList.remove('recording');
+  document.getElementById('statusDot').classList.remove('on');
+  document.getElementById('statusText').textContent = 'Micrófono apagado';
+  updateTuningUI(null,0,false);
+}
+
+/* ============================================================
+   8. TAP TEMPO Y EVENTOS DE UI
+   ============================================================ */
+let tapTimes = [];
+document.getElementById('tapTempo').addEventListener('click', ()=>{
+  const now = performance.now();
+  tapTimes.push(now);
+  tapTimes = tapTimes.filter(t=> now-t < 4000);
+  if(tapTimes.length>=2){
+    const intervals = [];
+    for(let i=1;i<tapTimes.length;i++) intervals.push(tapTimes[i]-tapTimes[i-1]);
+    const avg = intervals.reduce((a,b)=>a+b,0)/intervals.length;
+    const bpm = Math.round(60000/avg);
+    document.getElementById('bpm').value = Math.min(300, Math.max(30,bpm));
+  }
+});
+
+document.getElementById('micBtn').addEventListener('click', ()=>{
+  if(listening) stopMic(); else startMic();
+});
+
+/* Guardar una copia de la app tal cual está, en cualquier carpeta que elija el usuario
+   (Escritorio, Documentos, donde sea). Con soporte nativo de "Guardar como" en Chrome/Edge,
+   y descarga directa como respaldo en los navegadores que no lo permiten. */
+async function saveAppCopy(){
+  const htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  const blob = new Blob([htmlContent], {type:'text/html'});
+  if(window.showSaveFilePicker){
+    try{
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'Fuelle - Transcriptor de Bandoneon.html',
+        types: [{ description:'Página web', accept:{'text/html':['.html']} }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      alert('Guardado. Ese archivo ya funciona solo: hacé doble clic en él cuando quieras usarlo, sin necesidad de este chat.');
+    }catch(err){
+      if(err.name !== 'AbortError') downloadBlob(blob, 'Fuelle - Transcriptor de Bandoneon.html');
+    }
+  } else {
+    downloadBlob(blob, 'Fuelle - Transcriptor de Bandoneon.html');
+    alert('Se descargó el archivo a tu carpeta de Descargas habitual (tu navegador no permite elegir la carpeta desde acá). Podés moverlo al Escritorio cuando quieras.');
+  }
+}
+
+/* Abre la app en una ventana propia, sin barra de pestañas del navegador,
+   para que quede visible aunque cierres otras pestañas. */
+function openStandaloneWindow(){
+  const features = 'width=1100,height:840,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes';
+  const win = window.open(location.href, 'FuelleBandoneon', features.replace('height:840','height=840'));
+  if(!win){
+    alert('El navegador bloqueó la ventana emergente. Permití pop-ups para esta página e intentá de nuevo.');
+  }
+}
+
+document.getElementById('saveAppBtn').addEventListener('click', saveAppCopy);
+document.getElementById('standaloneBtn').addEventListener('click', openStandaloneWindow);
+
+/* ============================================================
+   9. INSTALACIÓN COMO APP (PWA) — solo funciona si el archivo
+      está servido por https:// o localhost, no desde file://
+   ============================================================ */
+if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  document.getElementById('installBtn').style.display = 'inline-block';
+});
+document.getElementById('installBtn').addEventListener('click', async ()=>{
+  if(!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  document.getElementById('installBtn').style.display = 'none';
+});
+window.addEventListener('appinstalled', ()=>{
+  document.getElementById('installBtn').style.display = 'none';
+});
+document.getElementById('undoBtn').addEventListener('click', undoNote);
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  if(confirm('¿Vaciar toda la partitura transcripta?')) clearScore();
+});
+document.getElementById('keySelect').addEventListener('change', renderScore);
+document.getElementById('timeSig').addEventListener('change', renderScore);
+document.getElementById('playBtn').addEventListener('click', playScore);
+document.getElementById('stopBtn').addEventListener('click', stopScore);
+document.getElementById('exportPng').addEventListener('click', exportPng);
+document.getElementById('exportPdf').addEventListener('click', exportPdf);
+document.getElementById('exportXml').addEventListener('click', exportXml);
+document.getElementById('exportMidi').addEventListener('click', exportMidi);
+document.getElementById('printBtn').addEventListener('click', ()=> window.print());
+
+renderScore();
+</script>
+</body>
+</html>
 
