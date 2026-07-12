@@ -1,6 +1,6 @@
-const CACHE_NAME = 'fuelle-bandoneon-v1';
-const ASSETS = ['./index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
+const CACHE_NAME = 'fuelleser-v1';
+const ASSETS = ['./index.html', './manifest.json', './icon-192.png', './icon-512.png', './sw.js'];
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).catch(()=>{})
