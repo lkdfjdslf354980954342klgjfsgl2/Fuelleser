@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;900&family=Libre+Franklin:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/vexflow/4.2.2/vexflow.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
@@ -576,6 +576,22 @@ function timeSigBeats(){
 function renderScore(){
   const container = document.getElementById('scoreSvg');
   container.innerHTML = '';
+  if(typeof Vex === 'undefined' || !Vex.Flow){
+    container.innerHTML = '<div style="padding:20px;color:#7a2230;font-family:monospace;font-size:13px;">'+
+      '⚠ No se pudo cargar la librería de partituras (VexFlow). Revisá tu conexión a internet y recargá la página. '+
+      'Si el problema sigue, avisale a quien te ayudó a montar la app.</div>';
+    return;
+  }
+  try{
+    renderScoreInner(container);
+  }catch(err){
+    container.innerHTML = '<div style="padding:20px;color:#7a2230;font-family:monospace;font-size:13px;">'+
+      '⚠ Error al dibujar la partitura: '+err.message+'</div>';
+    console.error(err);
+  }
+}
+
+function renderScoreInner(container){
   const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, Dot } = Vex.Flow;
   const key = currentKey();
   const ts = document.getElementById('timeSig').value;
@@ -636,6 +652,10 @@ function renderScore(){
 let synth = null, reverb = null, isPlaying = false, scheduledEventIds = [];
 async function ensureSynth(){
   if(synth) return;
+  if(typeof Tone === 'undefined'){
+    alert('No se pudo cargar el motor de sonido (Tone.js). Revisá tu conexión a internet y recargá la página.');
+    throw new Error('Tone.js no disponible');
+  }
   await Tone.start();
   reverb = new Tone.Reverb({ decay: 2.2, wet: 0.22 }).toDestination();
   synth = new Tone.PolySynth(Tone.FMSynth, {
@@ -651,7 +671,11 @@ async function ensureSynth(){
 
 async function playScore(){
   if(scoreNotes.length===0) return;
-  await ensureSynth();
+  try{
+    await ensureSynth();
+  }catch(err){
+    return; // ensureSynth ya mostró el aviso correspondiente
+  }
   hardStopPlayback(); // aseguramos un estado limpio antes de empezar
   isPlaying = true;
   document.getElementById('playBtn').disabled = true;
