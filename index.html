@@ -94,6 +94,12 @@ select, input[type=number]{
   border-radius:8px; padding:8px 10px; font-family:'JetBrains Mono', monospace; font-size:13px;
 }
 .field{min-width:130px;}
+.text-input{
+  background:var(--ink); color:var(--parchment); border:1px solid rgba(201,162,75,.35);
+  border-radius:8px; padding:8px 10px; font-family:'Libre Franklin', sans-serif; font-size:13px;
+  width:100%;
+}
+.field-grow{flex:1; min-width:180px;}
 
 button{
   font-family:'Libre Franklin', sans-serif;
@@ -232,6 +238,7 @@ footer{text-align:center; color:var(--parchment-dim); font-size:12px; margin-top
     <div class="row" style="margin-top:14px;">
       <label class="toggle"><input type="checkbox" id="voiceToggle" checked> Anunciar nota en voz alta</label>
       <label class="toggle"><input type="checkbox" id="autocorrectToggle" checked> Autocorrección de estabilidad</label>
+      <label class="toggle"><input type="checkbox" id="restToggle" checked> Capturar silencios como pausas/calderón</label>
       <label class="toggle"><input type="checkbox" id="metronomeToggle"> Metrónomo al reproducir</label>
     </div>
   </div>
@@ -240,6 +247,8 @@ footer{text-align:center; color:var(--parchment-dim); font-size:12px; margin-top
     <h2>② Escucha en vivo</h2>
     <div class="row" style="margin-bottom:14px;">
       <button class="primary" id="micBtn">🎙️ Empezar a escuchar</button>
+      <button class="ghost" id="micPermBtn">🔓 Verificar / activar permiso de micrófono</button>
+      <button class="ghost" id="siteSettingsBtn">🔧 Abrir ajustes de este sitio en Chrome</button>
       <button class="ghost" id="undoBtn">↩ Borrar última nota</button>
       <button class="ghost" id="clearBtn">🗑 Vaciar partitura</button>
       <button class="ghost" id="saveAppBtn">💾 Guardar esta app</button>
@@ -261,14 +270,15 @@ footer{text-align:center; color:var(--parchment-dim); font-size:12px; margin-top
         <div style="text-align:left;">
           <div class="stats">
             <div>Notas transcriptas: <b id="statCount">0</b></div>
+            <div>Silencios: <b id="statRests">0</b></div>
             <div>Duración detectada: <b id="statDur">—</b></div>
             <div>Frecuencia: <b id="statFreq">— Hz</b></div>
             <div>Confianza: <b id="statConf">—</b></div>
           </div>
           <p style="font-size:12.5px; color:var(--parchment-dim); margin-top:16px; line-height:1.5;">
             Tocá una nota sostenida por un instante para calibrar. El sistema promedia varias lecturas
-            antes de confirmar cada nota, así evita errores por vibrato, ruido de aire del fuelle o
-            armónicos falsos.
+            antes de confirmar cada nota, prioriza el tono fundamental por sobre los armónicos del fuelle
+            de lengüetas, y ahora también anota los silencios entre frases como pausas reales.
           </p>
         </div>
       </div>
@@ -277,6 +287,16 @@ footer{text-align:center; color:var(--parchment-dim); font-size:12px; margin-top
 
   <div class="panel">
     <h2>③ Partitura</h2>
+    <div class="row" style="margin-bottom:12px;">
+      <div class="field field-grow">
+        <label>Título de la obra</label>
+        <input type="text" id="scoreTitle" class="text-input" placeholder="Ej: Balada para un loco">
+      </div>
+      <div class="field field-grow">
+        <label>Compositor / arreglo</label>
+        <input type="text" id="scoreComposer" class="text-input" placeholder="Ej: Arr. propio">
+      </div>
+    </div>
     <div class="score-controls">
       <div class="row">
         <button id="playBtn">▶ Reproducir</button>
@@ -305,11 +325,9 @@ const SHARP_NAMES = ['Do','Do#','Re','Re#','Mi','Fa','Fa#','Sol','Sol#','La','La
 const FLAT_NAMES  = ['Do','Reb','Re','Mib','Mi','Fa','Solb','Sol','Lab','La','Sib','Si'];
 const SPOKEN_SHARP = ['Do','Do sostenido','Re','Re sostenido','Mi','Fa','Fa sostenido','Sol','Sol sostenido','La','La sostenido','Si'];
 const SPOKEN_FLAT  = ['Do','Re bemol','Re','Mi bemol','Mi','Fa','Sol bemol','Sol','La bemol','La','Si bemol','Si'];
-// VexFlow letter (c,d,e,f,g,a,b) + accidental for each pitch class, per accidental system
 const VEX_SHARP = ['c','c#','d','d#','e','f','f#','g','g#','a','a#','b'];
 const VEX_FLAT  = ['c','db','d','eb','e','f','gb','g','ab','a','bb','b'];
 
-// key -> [tonic pitch class, usesFlats, vexflow key string for signature]
 const KEYS = [
   {label:'Do mayor',   flats:false, vex:'C'},
   {label:'Sol mayor',  flats:false, vex:'G'},
@@ -324,6 +342,8 @@ const KEYS = [
   {label:'Lab mayor',  flats:true,  vex:'Ab'},
   {label:'Reb mayor',  flats:true,  vex:'Db'},
 ];
+// Real circle-of-fifths values, used for correct MusicXML key signatures.
+const KEY_FIFTHS = {C:0,G:1,D:2,A:3,E:4,B:5,'F#':6,F:-1,Bb:-2,Eb:-3,Ab:-4,Db:-5};
 
 const keySelect = document.getElementById('keySelect');
 KEYS.forEach((k,i)=>{
@@ -335,7 +355,6 @@ KEYS.forEach((k,i)=>{
 
 function currentKey(){ return KEYS[+keySelect.value]; }
 
-// Duration quantizer: beats -> {vex duration code, dots, label}
 const DURATION_TABLE = [
   {beats:4,    code:'w',  label:'redonda'},
   {beats:3,    code:'hd', label:'blanca con puntillo'},
@@ -356,6 +375,10 @@ function quantizeDuration(beats){
   }
   return best;
 }
+// Shared duration-code helpers (used by render, playback, and every exporter
+// so a beat is always the same length everywhere).
+function beatsOfCode(code){ return {w:4,h:2,q:1,'8':0.5,'16':0.25,'32':0.125}[code]; }
+function typeOfXml(code){ return {w:'whole',h:'half',q:'quarter','8':'eighth','16':'16th','32':'32nd'}[code]; }
 
 function midiToInfo(midi, useFlats){
   const pc = ((Math.round(midi) % 12) + 12) % 12;
@@ -367,12 +390,15 @@ function midiToInfo(midi, useFlats){
 }
 
 /* ============================================================
-   2. DETECCIÓN DE ALTURA (autocorrelación + estabilización)
+   2. DETECCIÓN DE ALTURA (autocorrelación afinada para bandoneón)
    ============================================================ */
 let audioCtx, analyser, micSource, scriptNode, mediaStream;
 let listening = false;
-let pitchHistory = []; // last N stable readings {midi, time}
-let currentNoteState = null; // {midi, startTime, lastSeen, samples:[]}
+let currentNoteState = null;
+let timelineCursor = null; // seconds; end of the last transcribed note/rest
+const MIN_REST = 0.09;        // ignore micro-gaps shorter than this
+const MAX_REST_SECONDS = 6;   // ignore huge gaps (user paused the app, etc.)
+
 const SENSITIVITY_PARAMS = {
   alta:     { rmsThresh:0.008, clarityThresh:0.85, confirmFrames:2 },
   media:    { rmsThresh:0.014, clarityThresh:0.90, confirmFrames:3 },
@@ -387,7 +413,6 @@ function autoCorrelate(buf, sampleRate){
   const params = SENSITIVITY_PARAMS[document.getElementById('sensitivity').value];
   if(rms < params.rmsThresh) return {freq:-1, clarity:0, rms};
 
-  // trim leading/trailing silence for a cleaner window
   let start=0, end=SIZE-1;
   const trimThresh = rms*0.2;
   while(start<SIZE && Math.abs(buf[start])<trimThresh) start++;
@@ -396,25 +421,38 @@ function autoCorrelate(buf, sampleRate){
   const N = trimmed.length;
   if(N < 512) return {freq:-1, clarity:0, rms};
 
-  const maxLag = Math.min(Math.floor(sampleRate/60), N-1); // down to ~60Hz
-  const minLag = Math.floor(sampleRate/1500); // up to ~1500Hz
-  let bestLag = -1, bestCorr = 0;
+  // Bandoneón melody range is roughly E2–A6; search a touch wider for safety.
+  const maxLag = Math.min(Math.floor(sampleRate/55), N-1);
+  const minLag = Math.floor(sampleRate/1800);
   const c = new Float32Array(maxLag+1);
+  let globalBestLag = -1, globalBestCorr = 0;
   for(let lag=minLag; lag<=maxLag; lag++){
     let sum=0;
     for(let i=0;i<N-lag;i++){ sum += trimmed[i]*trimmed[i+lag]; }
     c[lag]=sum;
-    if(sum>bestCorr){ bestCorr=sum; bestLag=lag; }
+    if(sum>globalBestCorr){ globalBestCorr=sum; globalBestLag=lag; }
   }
-  if(bestLag<=0) return {freq:-1, clarity:0, rms};
+  if(globalBestLag<=0) return {freq:-1, clarity:0, rms};
 
-  // normalize correlation by energy for a clarity score
+  // A reed instrument like the bandoneón has very strong harmonics, which can
+  // trick a plain "pick the global maximum" search into locking onto an
+  // overtone (usually reported as an octave too high). Instead, scan from the
+  // shortest lag (highest frequency) outward and take the FIRST strong peak —
+  // this favors the true fundamental over its harmonics.
+  let chosenLag = globalBestLag;
+  for(let lag=minLag+1; lag<maxLag; lag++){
+    if(c[lag] > c[lag-1] && c[lag] >= c[lag+1] && c[lag] > globalBestCorr*0.86){
+      chosenLag = lag;
+      break;
+    }
+  }
+
   let energy=0;
-  for(let i=0;i<N-bestLag;i++){ energy += trimmed[i]*trimmed[i] + trimmed[i+bestLag]*trimmed[i+bestLag]; }
-  const clarity = energy>0 ? (2*bestCorr)/energy : 0;
+  for(let i=0;i<N-chosenLag;i++){ energy += trimmed[i]*trimmed[i] + trimmed[i+chosenLag]*trimmed[i+chosenLag]; }
+  const clarity = energy>0 ? (2*c[chosenLag])/energy : 0;
 
-  // parabolic interpolation around bestLag for sub-sample precision
-  let lag = bestLag;
+  // parabolic interpolation around chosenLag for sub-sample precision
+  let lag = chosenLag;
   if(lag>minLag && lag<maxLag){
     const y1=c[lag-1], y2=c[lag], y3=c[lag+1];
     const denom = (y1 - 2*y2 + y3);
@@ -448,6 +486,16 @@ function processAudioFrame(buf, sampleRate){
   const now = performance.now()/1000;
 
   if(!currentNoteState){
+    // Coming out of silence: if silence-as-rest capture is on, log the gap.
+    if(document.getElementById('restToggle').checked && timelineCursor !== null){
+      const gap = now - timelineCursor;
+      if(gap > MIN_REST && gap < MAX_REST_SECONDS){
+        const bpm = +document.getElementById('bpm').value || 100;
+        const beatLen = 60/bpm;
+        const q = quantizeDuration(gap/beatLen);
+        addRestToScore(q);
+      }
+    }
     currentNoteState = { midi:nearest, startTime:now, lastSeen:now, samples:[midi], confirmedFrames:1 };
     return;
   }
@@ -461,7 +509,6 @@ function processAudioFrame(buf, sampleRate){
       currentNoteState.announced = true;
     }
   } else {
-    // possible new note: require stability before switching (avoids octave jumps / glitches)
     currentNoteState.pendingMidi = currentNoteState.pendingMidi===nearest ? currentNoteState.pendingMidi : nearest;
     currentNoteState.pendingCount = (currentNoteState.pendingMidi===nearest) ? (currentNoteState.pendingCount||0)+1 : 1;
     const need = autocorrectOn ? params.confirmFrames : 1;
@@ -476,7 +523,6 @@ function handleSilence(){
   updateTuningUI(null,0,false);
   if(currentNoteState){
     const now = performance.now()/1000;
-    // small grace period to avoid cutting notes on brief silences
     if(now - currentNoteState.lastSeen > 0.06){
       finalizeNote(now);
       currentNoteState = null;
@@ -487,13 +533,14 @@ function handleSilence(){
 function finalizeNote(endTime){
   if(!currentNoteState) return;
   const dur = endTime - currentNoteState.startTime;
-  const MIN_NOTE = 0.045; // ignore blips shorter than ~45ms
+  const MIN_NOTE = 0.045;
   if(dur < MIN_NOTE) return;
   const bpm = +document.getElementById('bpm').value || 100;
   const beatLen = 60/bpm;
   const beats = dur/beatLen;
   const q = quantizeDuration(beats);
   addNoteToScore(currentNoteState.midi, q);
+  timelineCursor = endTime;
 }
 
 /* ============================================================
@@ -529,7 +576,7 @@ function announceNote(midi){
   if(midi===lastAnnouncedMidi) return;
   lastAnnouncedMidi = midi;
   if('speechSynthesis' in window){
-    if(speechQueueLen > 2){ speechSynthesis.cancel(); speechQueueLen=0; } // avoid pileup on fast passages
+    if(speechQueueLen > 2){ speechSynthesis.cancel(); speechQueueLen=0; }
     const utter = new SpeechSynthesisUtterance(info.spoken);
     utter.lang = 'es-AR';
     utter.rate = 1.15;
@@ -543,10 +590,15 @@ function announceNote(midi){
 /* ============================================================
    4. MODELO DE PARTITURA + RENDER CON VEXFLOW
    ============================================================ */
-let scoreNotes = []; // {midi, code, dots, label}
+let scoreNotes = []; // {type:'note'|'rest', midi?, code, dots, label}
 
 function addNoteToScore(midi, q){
-  scoreNotes.push({ midi, code:q.code.replace('d',''), dots:q.code.includes('d')?1:0, label:q.label });
+  scoreNotes.push({ type:'note', midi, code:q.code.replace('d',''), dots:q.code.includes('d')?1:0, label:q.label });
+  renderScore();
+  updateStats();
+}
+function addRestToScore(q){
+  scoreNotes.push({ type:'rest', code:q.code.replace('d',''), dots:q.code.includes('d')?1:0, label:q.label+' (silencio)' });
   renderScore();
   updateStats();
 }
@@ -562,7 +614,10 @@ function clearScore(){
   updateStats();
 }
 function updateStats(){
-  document.getElementById('statCount').textContent = scoreNotes.length;
+  const notes = scoreNotes.filter(n=>n.type==='note');
+  const rests = scoreNotes.filter(n=>n.type==='rest');
+  document.getElementById('statCount').textContent = notes.length;
+  document.getElementById('statRests').textContent = rests.length;
   const last = scoreNotes[scoreNotes.length-1];
   document.getElementById('statDur').textContent = last ? last.label : '—';
 }
@@ -571,6 +626,28 @@ function timeSigBeats(){
   const ts = document.getElementById('timeSig').value;
   const [num, den] = ts.split('/').map(Number);
   return { num, den, beatsPerMeasure: num*(4/den) };
+}
+
+// Groups the flat list of notes/rests into proper measures according to the
+// current time signature. Shared by rendering AND every exporter, so the
+// visual score and the exported files always agree on where bars fall.
+function buildMeasures(){
+  const { beatsPerMeasure } = timeSigBeats();
+  const measures = [[]];
+  let acc = 0;
+  scoreNotes.forEach(n=>{
+    let beats = beatsOfCode(n.code) * (n.dots ? 1.5 : 1);
+    if(acc + beats > beatsPerMeasure + 0.001 && measures[measures.length-1].length>0){
+      measures.push([]);
+      acc = 0;
+    }
+    measures[measures.length-1].push(n);
+    acc += beats;
+    if(acc >= beatsPerMeasure - 0.001) { measures.push([]); acc = 0; }
+  });
+  if(measures[measures.length-1].length===0) measures.pop();
+  if(measures.length===0) measures.push([]);
+  return measures;
 }
 
 function renderScore(){
@@ -592,64 +669,99 @@ function renderScore(){
 }
 
 function renderScoreInner(container){
-  const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, Dot } = Vex.Flow;
+  const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, Dot, Beam } = Vex.Flow;
   const key = currentKey();
   const ts = document.getElementById('timeSig').value;
   const { beatsPerMeasure } = timeSigBeats();
+  const measures = buildMeasures();
 
-  // group notes into measures based on quantized duration in beats
-  const beatsOf = code => ({w:4,h:2,q:1,'8':0.5,'16':0.25,'32':0.125}[code]);
-  const measures = [[]];
-  let acc = 0;
-  scoreNotes.forEach(n=>{
-    let beats = beatsOf(n.code) * (n.dots ? 1.5 : 1);
-    if(acc + beats > beatsPerMeasure + 0.001 && measures[measures.length-1].length>0){
-      measures.push([]);
-      acc = 0;
-    }
-    measures[measures.length-1].push(n);
-    acc += beats;
-    if(acc >= beatsPerMeasure - 0.001) { measures.push([]); acc = 0; }
-  });
-  if(measures[measures.length-1].length===0) measures.pop();
-  if(measures.length===0) measures.push([]);
+  // Multi-system layout: wrap measures onto new rows once a row is full,
+  // like real engraved sheet music, instead of one endless horizontal strip.
+  const measureWidth = 220;
+  const containerWidth = Math.max(360, (container.parentElement.clientWidth || 900) - 20);
+  const measuresPerRow = Math.max(1, Math.floor((containerWidth-40)/measureWidth));
+  const rows = [];
+  for(let i=0;i<measures.length;i+=measuresPerRow) rows.push(measures.slice(i,i+measuresPerRow));
+  if(rows.length===0) rows.push([[]]);
 
-  const measureWidth = 230;
-  const width = Math.max(700, 60 + measures.length*measureWidth + 40);
+  const rowHeight = 150;
+  const title = (document.getElementById('scoreTitle').value||'').trim();
+  const composer = (document.getElementById('scoreComposer').value||'').trim();
+  const topOffset = (title||composer) ? 40 : 6;
+  const svgWidth = Math.max(containerWidth+40, 40 + Math.min(measures.length, measuresPerRow)*measureWidth + 40);
+  const svgHeight = topOffset + rows.length*rowHeight + 30;
+
   const renderer = new Renderer(container, Renderer.Backends.SVG);
-  renderer.resize(width, 180);
+  renderer.resize(svgWidth, svgHeight);
   const ctx = renderer.getContext();
   ctx.setFont('Georgia', 10);
 
-  let x = 20;
-  measures.forEach((measure, mi)=>{
-    const stave = new Stave(x, 30, measureWidth);
-    if(mi===0){
-      stave.addClef('treble').addKeySignature(key.vex).addTimeSignature(ts);
-    }
-    stave.setContext(ctx).draw();
+  // Title/composer are drawn INTO the SVG (not as HTML) so PNG/PDF exports
+  // capture them too.
+  if(title){
+    ctx.save();
+    ctx.setFont('Georgia', 20, 'bold');
+    ctx.fillText(title, 20, 24);
+    ctx.restore();
+  }
+  if(composer){
+    ctx.save();
+    ctx.setFont('Georgia', 12, 'italic');
+    const approxWidth = composer.length*6.5;
+    ctx.fillText(composer, Math.max(20, svgWidth-20-approxWidth), 24);
+    ctx.restore();
+  }
 
-    if(measure.length>0){
-      const staveNotes = measure.map(n=>{
-        const info = midiToInfo(n.midi, key.flats);
-        const sn = new StaveNote({ clef:'treble', keys:[info.vexKey], duration:n.code + (n.dots?'d':'') });
-        if(n.dots) Dot.buildAndAttach([sn], {all:true});
-        return sn;
-      });
-      Accidental.applyAccidentals([staveNotes], key.vex);
-      const voice = new Voice({ num_beats: beatsPerMeasure, beat_value: 4 }).setStrict(false);
-      voice.addTickables(staveNotes);
-      new Formatter().joinVoices([voice]).format([voice], measureWidth-40);
-      voice.draw(ctx, stave);
-    }
-    x += measureWidth;
+  let measureCounter = 0;
+  rows.forEach((row, rowIdx)=>{
+    let x = 20;
+    const y = topOffset + rowIdx*rowHeight + 10;
+    row.forEach((measure, mi)=>{
+      measureCounter++;
+      const isVeryFirst = (rowIdx===0 && mi===0);
+      const stave = new Stave(x, y, measureWidth);
+      if(isVeryFirst){
+        stave.addClef('treble').addKeySignature(key.vex).addTimeSignature(ts);
+      } else if(mi===0){
+        stave.addClef('treble').addKeySignature(key.vex);
+      }
+      stave.setContext(ctx).draw();
+
+      ctx.save();
+      ctx.setFont('JetBrains Mono', 9);
+      ctx.fillText(String(measureCounter), x+2, y-4);
+      ctx.restore();
+
+      if(measure.length>0){
+        const staveNotes = measure.map(n=>{
+          if(n.type==='rest'){
+            const sn = new StaveNote({ clef:'treble', keys:['b/4'], duration:n.code+(n.dots?'d':'')+'r' });
+            if(n.dots) Dot.buildAndAttach([sn], {all:true});
+            return sn;
+          }
+          const info = midiToInfo(n.midi, key.flats);
+          const sn = new StaveNote({ clef:'treble', keys:[info.vexKey], duration:n.code+(n.dots?'d':'') });
+          if(n.dots) Dot.buildAndAttach([sn], {all:true});
+          return sn;
+        });
+        Accidental.applyAccidentals([staveNotes], key.vex);
+        const voice = new Voice({ num_beats: beatsPerMeasure, beat_value: 4 }).setStrict(false);
+        voice.addTickables(staveNotes);
+        new Formatter().joinVoices([voice]).format([voice], measureWidth-40);
+        voice.draw(ctx, stave);
+        // Auto-beam eighth notes and shorter, like professionally engraved scores.
+        const beams = Beam.generateBeams(staveNotes);
+        beams.forEach(b => b.setContext(ctx).draw());
+      }
+      x += measureWidth;
+    });
   });
 }
 
 /* ============================================================
    5. REPRODUCCIÓN DE ALTA CALIDAD (Tone.js)
    ============================================================ */
-let synth = null, reverb = null, isPlaying = false, scheduledEventIds = [];
+let synth = null, reverb = null, vibrato = null, isPlaying = false, scheduledEventIds = [];
 async function ensureSynth(){
   if(synth) return;
   if(typeof Tone === 'undefined'){
@@ -658,6 +770,8 @@ async function ensureSynth(){
   }
   await Tone.start();
   reverb = new Tone.Reverb({ decay: 2.2, wet: 0.22 }).toDestination();
+  // A light vibrato approximates the natural "reed wobble" of a bandoneón.
+  vibrato = new Tone.Vibrato({ frequency: 5, depth: 0.08 }).connect(reverb);
   synth = new Tone.PolySynth(Tone.FMSynth, {
     harmonicity: 2.01,
     modulationIndex: 3,
@@ -665,7 +779,7 @@ async function ensureSynth(){
     envelope: { attack:0.008, decay:0.25, sustain:0.65, release:0.6 },
     modulation: { type:'triangle' },
     modulationEnvelope: { attack:0.02, decay:0.3, sustain:0.2, release:0.4 }
-  }).connect(reverb);
+  }).connect(vibrato);
   synth.volume.value = -6;
 }
 
@@ -674,25 +788,26 @@ async function playScore(){
   try{
     await ensureSynth();
   }catch(err){
-    return; // ensureSynth ya mostró el aviso correspondiente
+    return;
   }
-  hardStopPlayback(); // aseguramos un estado limpio antes de empezar
+  hardStopPlayback();
   isPlaying = true;
   document.getElementById('playBtn').disabled = true;
   document.getElementById('stopBtn').disabled = false;
   const bpm = +document.getElementById('bpm').value || 100;
   const beatLen = 60/bpm;
-  const beatsOf = code => ({w:4,h:2,q:1,'8':0.5,'16':0.25,'32':0.125}[code]);
   let t = 0;
   scoreNotes.forEach(n=>{
-    const beats = beatsOf(n.code) * (n.dots?1.5:1);
+    const beats = beatsOfCode(n.code) * (n.dots?1.5:1);
     const dur = beats*beatLen;
-    const freq = Tone.Frequency(n.midi, 'midi').toFrequency();
-    const noteTime = t;
-    const id = Tone.Transport.schedule((time)=>{
-      synth.triggerAttackRelease(freq, dur*0.92, time);
-    }, noteTime);
-    scheduledEventIds.push(id);
+    if(n.type!=='rest'){
+      const freq = Tone.Frequency(n.midi, 'midi').toFrequency();
+      const noteTime = t;
+      const id = Tone.Transport.schedule((time)=>{
+        synth.triggerAttackRelease(freq, dur*0.92, time);
+      }, noteTime);
+      scheduledEventIds.push(id);
+    }
     t += dur;
   });
   const endId = Tone.Transport.schedule(()=>{ stopScore(); }, t + 0.25);
@@ -726,6 +841,7 @@ function downloadBlob(blob, filename){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 2000);
 }
+function escapeXml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function svgToCanvas(scale){
   return new Promise((resolve)=>{
@@ -770,21 +886,31 @@ function exportXml(){
   const key = currentKey();
   const ts = document.getElementById('timeSig').value;
   const [num, den] = ts.split('/').map(Number);
-  const divisions = 96; // ticks per quarter note
-  const beatsOf = code => ({w:4,h:2,q:1,'8':0.5,'16':0.25,'32':0.125}[code]);
-  const typeOf = code => ({w:'whole',h:'half',q:'quarter','8':'eighth','16':'16th','32':'32nd'}[code]);
-  const fifths = KEYS.indexOf(key); // approximate circle-of-fifths index, informative only
-  let notesXml = '';
-  scoreNotes.forEach(n=>{
-    const info = midiToInfo(n.midi, key.flats);
-    const letter = info.vexKey[0].toUpperCase();
-    const alterMatch = info.vexKey.match(/^[a-g](#|b)?/);
-    let alter = 0;
-    if(info.vexKey.includes('#')) alter = 1;
-    if(info.vexKey.match(/[a-g]b/)) alter = -1;
-    const beats = beatsOf(n.code) * (n.dots?1.5:1);
-    const duration = Math.round(beats*divisions);
-    notesXml += `
+  const divisions = 96;
+  const fifths = KEY_FIFTHS[key.vex] ?? 0;
+  const title = (document.getElementById('scoreTitle').value||'Transcripción de bandoneón').trim();
+  const composer = (document.getElementById('scoreComposer').value||'').trim();
+  const measures = buildMeasures();
+
+  const measuresXml = measures.map((measure, idx)=>{
+    const notesXml = measure.map(n=>{
+      const beats = beatsOfCode(n.code) * (n.dots?1.5:1);
+      const duration = Math.round(beats*divisions);
+      if(n.type==='rest'){
+        return `
+      <note>
+        <rest/>
+        <duration>${duration}</duration>
+        <type>${typeOfXml(n.code)}</type>
+        ${n.dots? '<dot/>':''}
+      </note>`;
+      }
+      const info = midiToInfo(n.midi, key.flats);
+      const letter = info.vexKey[0].toUpperCase();
+      let alter = 0;
+      if(info.vexKey.includes('#')) alter = 1;
+      if(info.vexKey.match(/[a-g]b/)) alter = -1;
+      return `
       <note>
         <pitch>
           <step>${letter}</step>
@@ -792,28 +918,34 @@ function exportXml(){
           <octave>${info.octave}</octave>
         </pitch>
         <duration>${duration}</duration>
-        <type>${typeOf(n.code)}</type>
+        <type>${typeOfXml(n.code)}</type>
         ${n.dots? '<dot/>':''}
         ${alter!==0? `<accidental>${alter===1?'sharp':'flat'}</accidental>`:''}
       </note>`;
-  });
+    }).join('');
+
+    const attributesXml = idx===0 ? `
+      <attributes>
+        <divisions>${divisions}</divisions>
+        <key><fifths>${fifths}</fifths></key>
+        <time><beats>${num}</beats><beat-type>${den}</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>` : '';
+
+    return `
+    <measure number="${idx+1}">${attributesXml}${notesXml}
+    </measure>`;
+  }).join('');
+
   const xml = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="3.1">
-  <work><work-title>Transcripción de bandoneón</work-title></work>
+  <work><work-title>${escapeXml(title)}</work-title></work>
+  ${composer? `<identification><creator type="composer">${escapeXml(composer)}</creator></identification>` : ''}
   <part-list>
     <score-part id="P1"><part-name>Bandoneón</part-name></score-part>
   </part-list>
-  <part id="P1">
-    <measure number="1">
-      <attributes>
-        <divisions>${divisions}</divisions>
-        <key><fifths>0</fifths></key>
-        <time><beats>${num}</beats><beat-type>${den}</beat-type></time>
-        <clef><sign>G</sign><line>2</line></clef>
-      </attributes>
-      ${notesXml}
-    </measure>
+  <part id="P1">${measuresXml}
   </part>
 </score-partwise>`;
   downloadBlob(new Blob([xml], {type:'application/vnd.recordare.musicxml+xml'}), 'partitura-bandoneon.musicxml');
@@ -835,26 +967,25 @@ function writeVarLen(value){
 function exportMidi(){
   const bpm = +document.getElementById('bpm').value || 100;
   const ticksPerBeat = 96;
-  const beatsOf = code => ({w:4,h:2,q:1,'8':0.5,'16':0.25,'32':0.125}[code]);
   const usPerBeat = Math.round(60000000/bpm);
-  const events = [];
-  // tempo meta event at time 0
-  events.push({ delta:0, bytes:[0xFF,0x51,0x03,(usPerBeat>>16)&0xff,(usPerBeat>>8)&0xff,usPerBeat&0xff] });
 
   let track = [];
   function pushEvent(deltaTicks, bytes){ track.push({delta:deltaTicks, bytes}); }
   pushEvent(0, [0xFF,0x51,0x03,(usPerBeat>>16)&0xff,(usPerBeat>>8)&0xff,usPerBeat&0xff]);
 
-  let pending = 0;
+  let pendingRestTicks = 0;
   scoreNotes.forEach(n=>{
-    const beats = beatsOf(n.code) * (n.dots?1.5:1);
+    const beats = beatsOfCode(n.code) * (n.dots?1.5:1);
     const ticks = Math.round(beats*ticksPerBeat);
-    pushEvent(pending, [0x90, n.midi & 0x7f, 0x64]); // note on
-    pending = 0;
+    if(n.type==='rest'){
+      pendingRestTicks += ticks;
+      return;
+    }
+    pushEvent(pendingRestTicks, [0x90, n.midi & 0x7f, 0x64]); // note on
+    pendingRestTicks = 0;
     pushEvent(ticks, [0x80, n.midi & 0x7f, 0x40]); // note off
-    pending = 0;
   });
-  pushEvent(0, [0xFF,0x2F,0x00]); // end of track
+  pushEvent(pendingRestTicks, [0xFF,0x2F,0x00]); // end of track
 
   let trackBytes = [];
   track.forEach(ev=>{
@@ -863,9 +994,9 @@ function exportMidi(){
   });
 
   const header = [
-    0x4D,0x54,0x68,0x64, 0,0,0,6, // MThd + length
-    0,0, // format 0
-    0,1, // 1 track
+    0x4D,0x54,0x68,0x64, 0,0,0,6,
+    0,0,
+    0,1,
     (ticksPerBeat>>8)&0xff, ticksPerBeat&0xff
   ];
   const trackHeader = [0x4D,0x54,0x72,0x6B,
@@ -882,7 +1013,6 @@ async function startMic(){
   const statusText = document.getElementById('statusText');
   const micBtn = document.getElementById('micBtn');
 
-  // 1) Chequeo de contexto seguro / disponibilidad de la API, ANTES de pedir nada.
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
     showMicHelp('Este navegador no permite usar el micrófono desde esta página ' +
       '(suele pasar si se abrió por una dirección http:// que no es "localhost"). ' +
@@ -890,8 +1020,6 @@ async function startMic(){
     return;
   }
 
-  // 2) Crear/reanudar el AudioContext lo antes posible dentro del mismo clic
-  //    (los navegadores exigen que se cree tras un gesto del usuario).
   if(!audioCtx){
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
@@ -902,7 +1030,6 @@ async function startMic(){
   micBtn.disabled = true;
   statusText.textContent = 'Pidiendo permiso de micrófono… mirá arriba del navegador';
 
-  // 3) Pedir el micrófono. Esto es lo que dispara el cartel nativo de permiso.
   try{
     mediaStream = await navigator.mediaDevices.getUserMedia({
       audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false }
@@ -924,17 +1051,19 @@ async function startMic(){
   micSource = audioCtx.createMediaStreamSource(mediaStream);
   scriptNode = audioCtx.createScriptProcessor(2048, 1, 1);
   const gainSink = audioCtx.createGain();
-  gainSink.gain.value = 0; // silencioso: evita eco/feedback, solo se usa para mantener vivo el pipeline
+  gainSink.gain.value = 0;
   micSource.connect(scriptNode);
   scriptNode.connect(gainSink);
   gainSink.connect(audioCtx.destination);
+
+  timelineCursor = null;
+  currentNoteState = null;
 
   scriptNode.onaudioprocess = (e)=>{
     try{
       const buf = e.inputBuffer.getChannelData(0);
       processAudioFrame(buf, audioCtx.sampleRate);
     }catch(err){
-      // Un frame problemático no debe tirar abajo la escucha en vivo.
       console.warn('Frame de audio ignorado:', err);
     }
   };
@@ -945,6 +1074,69 @@ async function startMic(){
   statusText.textContent = 'Escuchando…';
   hideMicHelp();
 }
+
+/* Revisa el estado real del permiso de micrófono y actúa según corresponda.
+   Un botón NO puede abrir el panel de permisos de la barra de direcciones
+   directamente (eso lo bloquea el navegador por seguridad), pero sí puede:
+   - Disparar el cartel nativo si todavía no se decidió nada ("prompt").
+   - Decirte el paso exacto si ya quedó bloqueado ("denied").
+   - Confirmarte que ya está todo listo si ya está permitido ("granted"). */
+async function checkAndActivateMicPermission(){
+  const statusText = document.getElementById('statusText');
+  if(!navigator.permissions || !navigator.permissions.query){
+    // Navegador sin Permissions API (ej. Safari viejo): probamos directo.
+    startMic();
+    return;
+  }
+  try{
+    const status = await navigator.permissions.query({ name:'microphone' });
+    if(status.state === 'granted'){
+      statusText.textContent = 'El micrófono ya está permitido para esta página ✅';
+      hideMicHelp();
+    } else if(status.state === 'prompt'){
+      // Nunca se pidió: esto SÍ dispara el cartel nativo del navegador.
+      startMic();
+    } else {
+      showMicHelp('El micrófono está bloqueado para esta página. Un botón no puede reabrir ' +
+        'el permiso automáticamente (el navegador lo impide a propósito). Tocá el ícono de ' +
+        'candado 🔒 o "ⓘ" junto a la dirección del navegador → Permisos del sitio → Micrófono → ' +
+        'Permitir, y después volvé a tocar "Empezar a escuchar".');
+    }
+  }catch(e){
+    // Algunos navegadores no soportan consultar "microphone": probamos directo.
+    startMic();
+  }
+}
+document.getElementById('micPermBtn').addEventListener('click', checkAndActivateMicPermission);
+
+/* Chrome bloquea que una página abra chrome://settings/... directamente
+   (ninguna web puede manipular la configuración del navegador). Lo que sí
+   podemos hacer es armar la dirección exacta para ESTE sitio y copiarla,
+   para que el usuario la pegue él mismo en una pestaña nueva. */
+function siteSettingsUrl(){
+  return 'chrome://settings/content/siteDetails?site=' + encodeURIComponent(location.origin);
+}
+async function openSiteSettings(){
+  const url = siteSettingsUrl();
+  const box = document.getElementById('siteSettingsBox') || (()=>{
+    const b = document.createElement('div');
+    b.id = 'siteSettingsBox';
+    b.style.cssText = 'margin-top:12px;padding:12px 14px;border-radius:8px;background:rgba(201,162,75,.12);border:1px solid rgba(201,162,75,.4);font-size:12.5px;line-height:1.6;color:var(--parchment);';
+    document.getElementById('siteSettingsBtn').parentElement.appendChild(b);
+    return b;
+  })();
+  let copied = false;
+  try{
+    await navigator.clipboard.writeText(url);
+    copied = true;
+  }catch(e){ /* el portapapeles puede fallar sin gesto directo o permisos; igual mostramos la URL */ }
+  box.innerHTML = '⚠ Chrome no deja que una página abra su propia pantalla de ajustes directamente. ' +
+    (copied ? 'Ya copié esta dirección al portapapeles: ' : 'Copiá esta dirección: ') +
+    '<br><code style="user-select:all; word-break:break-all;">' + url + '</code>' +
+    '<br>Abrí una pestaña nueva de Chrome, pegala en la barra de direcciones y entrá. ' +
+    'Ahí vas a ver directamente los permisos de Fuelle, incluido Micrófono.';
+}
+document.getElementById('siteSettingsBtn').addEventListener('click', openSiteSettings);
 
 function showMicHelp(msg){
   let box = document.getElementById('micHelpBox');
@@ -972,6 +1164,7 @@ function stopMic(){
   if('speechSynthesis' in window) speechSynthesis.cancel();
   speechQueueLen = 0;
   lastAnnouncedMidi = null;
+  timelineCursor = null;
   document.getElementById('micBtn').textContent = '🎙️ Empezar a escuchar';
   document.getElementById('micBtn').classList.remove('recording');
   document.getElementById('statusDot').classList.remove('on');
@@ -1000,9 +1193,6 @@ document.getElementById('micBtn').addEventListener('click', ()=>{
   if(listening) stopMic(); else startMic();
 });
 
-/* Guardar una copia de la app tal cual está, en cualquier carpeta que elija el usuario
-   (Escritorio, Documentos, donde sea). Con soporte nativo de "Guardar como" en Chrome/Edge,
-   y descarga directa como respaldo en los navegadores que no lo permiten. */
 async function saveAppCopy(){
   const htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
   const blob = new Blob([htmlContent], {type:'text/html'});
@@ -1025,11 +1215,9 @@ async function saveAppCopy(){
   }
 }
 
-/* Abre la app en una ventana propia, sin barra de pestañas del navegador,
-   para que quede visible aunque cierres otras pestañas. */
 function openStandaloneWindow(){
-  const features = 'width=1100,height:840,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes';
-  const win = window.open(location.href, 'FuelleBandoneon', features.replace('height:840','height=840'));
+  const features = 'width=1100,height=840,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes';
+  const win = window.open(location.href, 'FuelleBandoneon', features);
   if(!win){
     alert('El navegador bloqueó la ventana emergente. Permití pop-ups para esta página e intentá de nuevo.');
   }
@@ -1039,8 +1227,7 @@ document.getElementById('saveAppBtn').addEventListener('click', saveAppCopy);
 document.getElementById('standaloneBtn').addEventListener('click', openStandaloneWindow);
 
 /* ============================================================
-   9. INSTALACIÓN COMO APP (PWA) — solo funciona si el archivo
-      está servido por https:// o localhost, no desde file://
+   9. INSTALACIÓN COMO APP (PWA)
    ============================================================ */
 if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')){
   window.addEventListener('load', ()=>{
@@ -1069,6 +1256,9 @@ document.getElementById('clearBtn').addEventListener('click', ()=>{
 });
 document.getElementById('keySelect').addEventListener('change', renderScore);
 document.getElementById('timeSig').addEventListener('change', renderScore);
+document.getElementById('scoreTitle').addEventListener('input', renderScore);
+document.getElementById('scoreComposer').addEventListener('input', renderScore);
+window.addEventListener('resize', ()=>{ if(scoreNotes.length) renderScore(); });
 document.getElementById('playBtn').addEventListener('click', playScore);
 document.getElementById('stopBtn').addEventListener('click', stopScore);
 document.getElementById('exportPng').addEventListener('click', exportPng);
@@ -1081,4 +1271,3 @@ renderScore();
 </script>
 </body>
 </html>
-
